@@ -1,10 +1,37 @@
 import * as path from 'path';
+import { app } from 'electron';
+import * as fs from 'fs';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ffmpeg = require('fluent-ffmpeg');
 
-// Point fluent-ffmpeg to the bundled binary
-const ffmpegPath: string = require('ffmpeg-static');
-ffmpeg.setFfmpegPath(ffmpegPath);
+// Resolve ffmpeg binary path.
+// In dev mode, use the ffmpeg-static npm module path.
+// In packaged app, use the extraResource copy in the resources folder.
+function getFfmpegPath(): string {
+  // Check if running from packaged app (resources folder next to asar)
+  const resourcesPath = process.resourcesPath;
+  const extraResourcePath = path.join(resourcesPath, 'ffmpeg.exe');
+
+  if (fs.existsSync(extraResourcePath)) {
+    return extraResourcePath;
+  }
+
+  // Fallback: dev mode — use ffmpeg-static npm package
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const staticPath: string = require('ffmpeg-static');
+    if (staticPath && fs.existsSync(staticPath)) {
+      return staticPath;
+    }
+  } catch {
+    // ffmpeg-static not available
+  }
+
+  // Last resort
+  return 'ffmpeg';
+}
+
+ffmpeg.setFfmpegPath(getFfmpegPath());
 
 export interface ExportOptions {
   inputFiles: string[];

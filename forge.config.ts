@@ -14,6 +14,9 @@ import { rendererConfig } from './webpack.renderer.config';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    extraResource: [
+      './node_modules/ffmpeg-static/ffmpeg.exe',
+    ],
   },
   rebuildConfig: {},
   makers: [

@@ -8,23 +8,9 @@ export interface TrackRecorder {
 export function createTrackRecorder(
   stream: MediaStream,
   peerId: string,
-  peerName: string,
-  mono: boolean
+  peerName: string
 ): TrackRecorder {
-  const audioContext = new AudioContext();
-  const source = audioContext.createMediaStreamSource(stream);
-  const dest = audioContext.createMediaStreamDestination();
-
-  // If mono, merge channels
-  if (mono) {
-    const merger = audioContext.createChannelMerger(1);
-    source.connect(merger);
-    merger.connect(dest);
-  } else {
-    source.connect(dest);
-  }
-
-  const mediaRecorder = new MediaRecorder(dest.stream, {
+  const mediaRecorder = new MediaRecorder(stream, {
     mimeType: 'audio/webm;codecs=opus',
   });
 

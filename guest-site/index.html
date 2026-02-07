@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Join Podcast Session</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,51 +12,159 @@
           Helvetica, Arial, sans-serif;
         background: #1a1a2e;
         color: #e0e0e0;
-        display: flex;
-        justify-content: center;
-        align-items: center;
         min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
       }
 
       .container {
-        text-align: center;
-        max-width: 400px;
-        padding: 40px;
+        width: 100%;
+        max-width: 480px;
+        padding: 24px 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
       }
 
-      h1 { color: #e94560; font-size: 24px; margin-bottom: 8px; }
-      .subtitle { color: #a0a0b8; font-size: 14px; margin-bottom: 32px; }
+      h1 { color: #e94560; font-size: 22px; }
+      .subtitle { color: #a0a0b8; font-size: 13px; text-align: center; }
 
-      .status { color: #a0a0b8; font-size: 16px; margin-bottom: 24px; }
+      .status { color: #a0a0b8; font-size: 14px; text-align: center; }
       .status.connected { color: #4caf50; }
       .status.error { color: #ff6b6b; }
 
-      .avatar {
-        width: 80px; height: 80px; border-radius: 50%;
+      .join-form {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+      }
+
+      .avatar-large {
+        width: 72px; height: 72px; border-radius: 50%;
         background: #e94560; display: flex; align-items: center;
-        justify-content: center; color: #fff; font-size: 32px;
-        font-weight: 700; margin: 0 auto 16px;
+        justify-content: center; color: #fff; font-size: 28px;
+        font-weight: 700;
       }
 
       .name-input {
-        background: #16213e; border: 1px solid #0f3460; border-radius: 6px;
-        color: #e0e0e0; padding: 10px 16px; font-size: 16px; width: 100%;
-        outline: none; text-align: center; margin-bottom: 16px;
+        background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+        color: #e0e0e0; padding: 12px 16px; font-size: 16px; width: 100%;
+        outline: none; text-align: center;
       }
       .name-input:focus { border-color: #e94560; }
 
       .join-btn {
         background: #e94560; color: #fff; border: none; border-radius: 8px;
         padding: 14px 32px; font-size: 16px; font-weight: 600;
-        cursor: pointer; transition: opacity 0.15s;
+        cursor: pointer; width: 100%; max-width: 240px;
+        transition: opacity 0.15s;
+        -webkit-tap-highlight-color: transparent;
       }
       .join-btn:hover { opacity: 0.85; }
       .join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-      .muted-indicator {
-        color: #ffa500; font-size: 14px; margin-top: 16px; display: none;
+      .participants-section {
+        width: 100%;
+        display: none;
       }
-      .muted-indicator.visible { display: block; }
+      .participants-section.visible { display: block; }
+
+      .participants-label {
+        color: #a0a0b8;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 10px;
+      }
+
+      .participants-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        width: 100%;
+      }
+
+      @media (max-width: 360px) {
+        .participants-grid { grid-template-columns: 1fr; }
+      }
+
+      .participant-card {
+        background: #16213e;
+        border-radius: 10px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        border: 2px solid #0f3460;
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .participant-card.speaking {
+        border-color: #4caf50;
+        box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+      }
+      .participant-card.is-you {
+        border-color: #e94560;
+      }
+
+      .avatar-small {
+        width: 40px; height: 40px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 16px; font-weight: 700;
+        border: 2px solid transparent;
+        transition: border-color 0.2s;
+      }
+      .speaking .avatar-small { border-color: #4caf50; }
+
+      .participant-name {
+        color: #e0e0e0;
+        font-size: 12px;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+      }
+
+      .level-meter {
+        width: 100%;
+        height: 3px;
+        background: #0d1117;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .level-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.05s;
+        background: #4caf50;
+      }
+
+      .muted-badge {
+        color: #ffa500;
+        font-size: 10px;
+        display: none;
+      }
+      .muted-badge.visible { display: block; }
+
+      .mute-self-btn {
+        background: #16213e;
+        color: #e0e0e0;
+        border: 1px solid #0f3460;
+        border-radius: 6px;
+        padding: 10px 24px;
+        font-size: 14px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .mute-self-btn.muted {
+        background: #e94560;
+        border-color: #e94560;
+      }
     </style>
   </head>
   <body>
@@ -64,38 +172,47 @@
       <h1>Podcast Recorder</h1>
       <p class="subtitle">You've been invited to join a recording session</p>
 
-      <div class="avatar" id="avatar">?</div>
+      <div class="join-form" id="joinForm">
+        <div class="avatar-large" id="avatar">?</div>
+        <input type="text" class="name-input" id="nameInput" placeholder="Your name" maxlength="20" />
+        <p class="status" id="status">Enter your name to join</p>
+        <button class="join-btn" id="joinBtn" disabled>Join Session</button>
+      </div>
 
-      <input
-        type="text"
-        class="name-input"
-        id="nameInput"
-        placeholder="Your name"
-        maxlength="20"
-      />
+      <div class="participants-section" id="participantsSection">
+        <p class="participants-label">Participants</p>
+        <div class="participants-grid" id="participantsGrid"></div>
+        <div style="text-align: center; margin-top: 12px;">
+          <button class="mute-self-btn" id="muteSelfBtn">Mute</button>
+        </div>
+      </div>
 
-      <p class="status" id="status">Enter your name to join</p>
-
-      <button class="join-btn" id="joinBtn" disabled>Join Session</button>
-
-      <p class="muted-indicator" id="mutedIndicator">
-        You have been muted by the host
-      </p>
+      <p class="muted-badge" id="mutedIndicator">You have been muted by the host</p>
     </div>
 
     <script type="module">
       import { joinRoom } from 'https://esm.sh/trystero@0.22.0/torrent';
 
       const APP_ID = 'podcast-recorder-v1';
+      const COLORS = ['#e94560', '#4fc3f7', '#81c784', '#ffb74d'];
 
       const nameInput = document.getElementById('nameInput');
       const joinBtn = document.getElementById('joinBtn');
       const statusEl = document.getElementById('status');
       const avatarEl = document.getElementById('avatar');
       const mutedEl = document.getElementById('mutedIndicator');
+      const joinForm = document.getElementById('joinForm');
+      const participantsSection = document.getElementById('participantsSection');
+      const participantsGrid = document.getElementById('participantsGrid');
+      const muteSelfBtn = document.getElementById('muteSelfBtn');
 
-      // Extract room ID from URL hash
       const roomId = window.location.hash.slice(1);
+      const peers = new Map();
+      let myName = '';
+      let myStream = null;
+      let myAnalyser = null;
+      let myAudioCtx = null;
+      let isMuted = false;
 
       if (!roomId) {
         statusEl.textContent = 'Invalid invite link \u2014 no room ID found';
@@ -108,47 +225,93 @@
         });
 
         joinBtn.addEventListener('click', async () => {
-          const name = nameInput.value.trim();
-          if (!name) return;
+          myName = nameInput.value.trim();
+          if (!myName) return;
 
           joinBtn.disabled = true;
           nameInput.disabled = true;
           statusEl.textContent = 'Requesting microphone access...';
 
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            myStream = await navigator.mediaDevices.getUserMedia({
+              audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
+            });
             statusEl.textContent = 'Connecting to session...';
+
+            myAudioCtx = new AudioContext();
+            const source = myAudioCtx.createMediaStreamSource(myStream);
+            myAnalyser = myAudioCtx.createAnalyser();
+            myAnalyser.fftSize = 256;
+            source.connect(myAnalyser);
 
             const room = joinRoom({ appId: APP_ID }, roomId);
             const [sendName] = room.makeAction('name');
 
-            room.onPeerJoin(() => {
-              sendName(name);
-              room.addStream(stream);
-              statusEl.textContent = 'Connected! Recording may be in progress.';
-              statusEl.className = 'status connected';
+            room.onPeerJoin((peerId) => {
+              sendName(myName);
+              room.addStream(myStream);
+              peers.set(peerId, { name: 'Peer', stream: null, analyser: null, audioCtx: null });
+              renderParticipants();
             });
 
-            room.onPeerLeave(() => {
-              statusEl.textContent = 'Host disconnected. You can close this tab.';
-              statusEl.className = 'status';
-            });
-
-            // Listen for mute commands from host
-            const [, onMuteCommand] = room.makeAction('mute-command');
-            onMuteCommand((peerId) => {
-              if (peerId === 'all' || peerId === room.selfId) {
-                const audioTrack = stream.getAudioTracks()[0];
-                audioTrack.enabled = !audioTrack.enabled;
-                mutedEl.classList.toggle('visible', !audioTrack.enabled);
+            room.onPeerLeave((peerId) => {
+              const peer = peers.get(peerId);
+              if (peer && peer.audioCtx) peer.audioCtx.close();
+              peers.delete(peerId);
+              renderParticipants();
+              if (peers.size === 0) {
+                statusEl.textContent = 'Host disconnected. You can close this tab.';
+                statusEl.className = 'status';
               }
             });
 
-            // Play audio from other peers so guest can hear everyone
-            room.onPeerStream((peerStream) => {
+            const [, onName] = room.makeAction('name');
+            onName((name, peerId) => {
+              const peer = peers.get(peerId);
+              if (peer) { peer.name = name; renderParticipants(); }
+            });
+
+            room.onPeerStream((peerStream, peerId) => {
+              const peer = peers.get(peerId);
+              if (!peer) return;
+              peer.stream = peerStream;
               const audio = new Audio();
               audio.srcObject = peerStream;
               audio.play();
+              const ctx = new AudioContext();
+              const src = ctx.createMediaStreamSource(peerStream);
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 256;
+              src.connect(analyser);
+              peer.audioCtx = ctx;
+              peer.analyser = analyser;
+              renderParticipants();
+              statusEl.textContent = 'Connected!';
+              statusEl.className = 'status connected';
+            });
+
+            const [, onMuteCommand] = room.makeAction('mute-command');
+            onMuteCommand((targetId) => {
+              if (targetId === 'all' || targetId === room.selfId) {
+                const audioTrack = myStream.getAudioTracks()[0];
+                audioTrack.enabled = !audioTrack.enabled;
+                isMuted = !audioTrack.enabled;
+                mutedEl.classList.toggle('visible', isMuted);
+                updateMuteBtn();
+              }
+            });
+
+            joinForm.style.display = 'none';
+            participantsSection.classList.add('visible');
+            statusEl.textContent = 'Connected! Waiting for others...';
+            statusEl.className = 'status connected';
+            startLevelAnimation();
+
+            muteSelfBtn.addEventListener('click', () => {
+              const audioTrack = myStream.getAudioTracks()[0];
+              audioTrack.enabled = !audioTrack.enabled;
+              isMuted = !audioTrack.enabled;
+              updateMuteBtn();
             });
 
           } catch (err) {
@@ -158,6 +321,82 @@
             nameInput.disabled = false;
           }
         });
+      }
+
+      function updateMuteBtn() {
+        muteSelfBtn.textContent = isMuted ? 'Unmute' : 'Mute';
+        muteSelfBtn.classList.toggle('muted', isMuted);
+      }
+
+      function getLevel(analyser) {
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i];
+        return sum / (data.length * 255);
+      }
+
+      function renderParticipants() {
+        participantsGrid.innerHTML = '';
+        participantsGrid.appendChild(createCard(myName + ' (You)', COLORS[0], 'self', true));
+        let i = 1;
+        peers.forEach((peer, peerId) => {
+          participantsGrid.appendChild(createCard(peer.name, COLORS[i % COLORS.length], peerId, false));
+          i++;
+        });
+      }
+
+      function createCard(name, color, id, isYou) {
+        const card = document.createElement('div');
+        card.className = 'participant-card' + (isYou ? ' is-you' : '');
+        card.id = 'card-' + id;
+
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar-small';
+        avatar.style.background = color;
+        avatar.textContent = name.charAt(0).toUpperCase();
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'participant-name';
+        nameEl.textContent = name;
+
+        const meter = document.createElement('div');
+        meter.className = 'level-meter';
+        const fill = document.createElement('div');
+        fill.className = 'level-fill';
+        fill.id = 'level-' + id;
+        fill.style.width = '0%';
+        meter.appendChild(fill);
+
+        card.appendChild(avatar);
+        card.appendChild(nameEl);
+        card.appendChild(meter);
+        return card;
+      }
+
+      function startLevelAnimation() {
+        function update() {
+          if (myAnalyser) {
+            const level = getLevel(myAnalyser);
+            const speaking = level > 0.08;
+            const selfFill = document.getElementById('level-self');
+            const selfCard = document.getElementById('card-self');
+            if (selfFill) selfFill.style.width = (Math.min(level * 300, 100)) + '%';
+            if (selfCard) selfCard.classList.toggle('speaking', speaking && !isMuted);
+          }
+          peers.forEach((peer, peerId) => {
+            if (peer.analyser) {
+              const level = getLevel(peer.analyser);
+              const speaking = level > 0.08;
+              const fill = document.getElementById('level-' + peerId);
+              const card = document.getElementById('card-' + peerId);
+              if (fill) fill.style.width = (Math.min(level * 300, 100)) + '%';
+              if (card) card.classList.toggle('speaking', speaking);
+            }
+          });
+          requestAnimationFrame(update);
+        }
+        requestAnimationFrame(update);
       }
     </script>
   </body>

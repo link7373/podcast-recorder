@@ -5,7 +5,6 @@ export interface SessionConfig {
   sessionName: string;
   inputDeviceId: string;
   outputDeviceId: string;
-  mono: boolean;
   noiseFilter: boolean;
   inputLevel: number;
   saveFolder: string;
@@ -20,8 +19,7 @@ export default function SetupScreen({ onStartSession }: SetupScreenProps) {
   const [sessionName, setSessionName] = useState('');
   const [inputDeviceId, setInputDeviceId] = useState('');
   const [outputDeviceId, setOutputDeviceId] = useState('');
-  const [mono, setMono] = useState(true);
-  const [noiseFilter, setNoiseFilter] = useState(false);
+  const [noiseFilter, setNoiseFilter] = useState(true);
   const [inputLevel, setInputLevel] = useState(80);
   const [saveFolder, setSaveFolder] = useState('');
 
@@ -94,12 +92,6 @@ export default function SetupScreen({ onStartSession }: SetupScreenProps) {
         {/* Toggles row */}
         <div style={styles.toggleRow}>
           <Toggle
-            label="Mono"
-            checked={mono}
-            onChange={setMono}
-            offLabel="Stereo"
-          />
-          <Toggle
             label="Noise Filter"
             checked={noiseFilter}
             onChange={setNoiseFilter}
@@ -147,7 +139,6 @@ export default function SetupScreen({ onStartSession }: SetupScreenProps) {
               sessionName: sessionName.trim(),
               inputDeviceId,
               outputDeviceId,
-              mono,
               noiseFilter,
               inputLevel,
               saveFolder,

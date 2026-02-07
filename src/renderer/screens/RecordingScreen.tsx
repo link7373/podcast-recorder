@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { SessionConfig } from './SetupScreen';
-import { createRoom, generateRoomId, getInviteLink, Peer } from '../lib/trystero-room';
+import { GreenRoomData } from './GreenRoomScreen';
 import {
   TrackRecorder,
   createTrackRecorder,
@@ -10,157 +10,202 @@ import {
   stopRecording,
   saveTrackToFile,
 } from '../lib/audio-recorder';
+import { getAudioLevel, isSpeaking } from '../hooks/useNoiseFilter';
 
-type RecordingState = 'waiting' | 'recording' | 'paused';
+type RecordingState = 'recording' | 'paused';
 
 interface RecordingScreenProps {
   config: SessionConfig;
+  roomData: GreenRoomData;
   onFinished: (trackFiles: string[]) => void;
 }
 
+const TRACK_COLORS = ['#e94560', '#4fc3f7', '#81c784', '#ffb74d'];
+
 export default function RecordingScreen({
   config,
+  roomData,
   onFinished,
 }: RecordingScreenProps) {
-  const [peers, setPeers] = useState<Map<string, Peer>>(new Map());
-  const [recordingState, setRecordingState] =
-    useState<RecordingState>('waiting');
-  const [roomId] = useState(() => generateRoomId());
-  const [inviteLink, setInviteLink] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [recordingState, setRecordingState] = useState<RecordingState>('recording');
   const [elapsed, setElapsed] = useState(0);
+  const [levels, setLevels] = useState<Map<string, number>>(new Map());
+  const [speaking, setSpeaking] = useState<Map<string, boolean>>(new Map());
+  const [muted, setMuted] = useState<Map<string, boolean>>(new Map());
+  // Live waveform data: array of snapshots { time, levels: Map<string, number> }
+  const [waveformData, setWaveformData] = useState<Array<{ time: number; levels: Map<string, number> }>>([]);
 
-  const roomRef = useRef<ReturnType<typeof createRoom> | null>(null);
   const recordersRef = useRef<TrackRecorder[]>([]);
-  const localStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const animFrameRef = useRef<number>(0);
+  const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
+  const startTimeRef = useRef<number>(Date.now());
 
-  // Set up room and local audio
+  // Build list of all participants (host + peers)
+  const allParticipants = useRef<Array<{ id: string; name: string; color: string }>>([]);
+
   useEffect(() => {
-    let cleanup = false;
+    const parts: Array<{ id: string; name: string; color: string }> = [
+      { id: 'local', name: 'You (Host)', color: TRACK_COLORS[0] },
+    ];
+    let i = 1;
+    roomData.peers.forEach((p) => {
+      parts.push({ id: p.id, name: p.name, color: TRACK_COLORS[i % TRACK_COLORS.length] });
+      i++;
+    });
+    allParticipants.current = parts;
+  }, [roomData.peers]);
 
-    async function init() {
-      // Get local mic stream
-      const constraints: MediaStreamConstraints = {
-        audio: config.inputDeviceId
-          ? { deviceId: { exact: config.inputDeviceId } }
-          : true,
-      };
-      const localStream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (cleanup) {
-        localStream.getTracks().forEach((t) => t.stop());
-        return;
-      }
-      localStreamRef.current = localStream;
-
-      // Create Trystero room
-      const session = createRoom(roomId);
-      roomRef.current = session;
-      setInviteLink(getInviteLink(roomId));
-
-      // Send our name to new peers
-      session.room.onPeerJoin((peerId) => {
-        session.sendName(config.sessionName);
-
-        setPeers((prev) => {
-          const next = new Map(prev);
-          next.set(peerId, {
-            id: peerId,
-            name: `Guest ${next.size + 1}`,
-            stream: null,
-            muted: false,
-          });
-          return next;
-        });
-      });
-
-      session.room.onPeerLeave((peerId) => {
-        setPeers((prev) => {
-          const next = new Map(prev);
-          next.delete(peerId);
-          return next;
-        });
-      });
-
-      // Receive peer names
-      const onName = (session.room as any)._onName;
-      if (onName) {
-        onName((name: string, peerId: string) => {
-          setPeers((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(peerId);
-            if (existing) {
-              next.set(peerId, { ...existing, name });
-            }
-            return next;
-          });
-        });
-      }
-
-      // Share our audio stream with peers, receive theirs
-      session.room.onPeerStream((stream, peerId) => {
-        setPeers((prev) => {
-          const next = new Map(prev);
-          const existing = next.get(peerId);
-          if (existing) {
-            next.set(peerId, { ...existing, stream });
-          }
-          return next;
-        });
-      });
-
-      // Add our stream so peers can hear us
-      session.room.addStream(localStream);
-    }
-
-    init();
-    return () => {
-      cleanup = true;
-      if (roomRef.current) {
-        roomRef.current.room.leave();
-      }
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-  }, [roomId, config]);
-
-  const handleStartRecording = useCallback(() => {
+  // Start recording immediately
+  useEffect(() => {
     const recorders: TrackRecorder[] = [];
 
-    // Record local mic
-    if (localStreamRef.current) {
-      recorders.push(
-        createTrackRecorder(
-          localStreamRef.current,
-          'local',
-          'Host',
-          config.mono
-        )
-      );
-    }
+    // Record local filtered stream
+    recorders.push(
+      createTrackRecorder(roomData.filteredStream, 'local', 'Host')
+    );
 
     // Record each peer's stream
-    peers.forEach((peer) => {
+    roomData.peers.forEach((peer) => {
       if (peer.stream) {
         recorders.push(
-          createTrackRecorder(peer.stream, peer.id, peer.name, config.mono)
+          createTrackRecorder(peer.stream, peer.id, peer.name)
         );
       }
     });
 
     recordersRef.current = recorders;
     startRecording(recorders);
-    setRecordingState('recording');
-    setElapsed(0);
+    startTimeRef.current = Date.now();
 
     timerRef.current = setInterval(() => {
       setElapsed((prev) => prev + 1);
     }, 1000);
-  }, [peers, config]);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [roomData]);
+
+  // Audio level animation loop + waveform data collection
+  useEffect(() => {
+    let lastWaveformCapture = 0;
+
+    function updateLevels() {
+      const newLevels = new Map<string, number>();
+      const newSpeaking = new Map<string, boolean>();
+
+      // Host level
+      if (roomData.localAnalyser) {
+        const level = getAudioLevel(roomData.localAnalyser);
+        newLevels.set('local', level);
+        newSpeaking.set('local', isSpeaking(roomData.localAnalyser));
+      }
+
+      // Peer levels
+      roomData.peers.forEach((peer) => {
+        if (peer.analyser) {
+          const level = getAudioLevel(peer.analyser);
+          newLevels.set(peer.id, level);
+          newSpeaking.set(peer.id, isSpeaking(peer.analyser));
+        }
+      });
+
+      setLevels(newLevels);
+      setSpeaking(newSpeaking);
+
+      // Capture waveform snapshot every 100ms
+      const now = Date.now();
+      if (now - lastWaveformCapture > 100) {
+        lastWaveformCapture = now;
+        setWaveformData((prev) => {
+          const elapsed = (now - startTimeRef.current) / 1000;
+          const next = [...prev, { time: elapsed, levels: new Map(newLevels) }];
+          // Keep last 600 snapshots (60 seconds of data at 100ms intervals)
+          if (next.length > 600) return next.slice(-600);
+          return next;
+        });
+      }
+
+      animFrameRef.current = requestAnimationFrame(updateLevels);
+    }
+    animFrameRef.current = requestAnimationFrame(updateLevels);
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [roomData]);
+
+  // Draw waveform canvas
+  useEffect(() => {
+    const canvas = waveformCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width;
+    const h = rect.height;
+
+    ctx.fillStyle = '#0d1117';
+    ctx.fillRect(0, 0, w, h);
+
+    if (waveformData.length < 2) return;
+
+    const parts = allParticipants.current;
+    const trackHeight = h / Math.max(parts.length, 1);
+    const dataLen = waveformData.length;
+    const pixelsPerSample = w / Math.min(dataLen, 600);
+
+    parts.forEach((part, trackIdx) => {
+      const baseY = trackIdx * trackHeight + trackHeight / 2;
+
+      // Draw track separator
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, trackIdx * trackHeight);
+      ctx.lineTo(w, trackIdx * trackHeight);
+      ctx.stroke();
+
+      // Draw track name
+      ctx.fillStyle = part.color;
+      ctx.font = '11px -apple-system, sans-serif';
+      ctx.fillText(part.name, 4, trackIdx * trackHeight + 14);
+
+      // Draw waveform
+      ctx.strokeStyle = part.color;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.8;
+
+      const startIdx = Math.max(0, dataLen - 600);
+      for (let i = startIdx; i < dataLen; i++) {
+        const x = (i - startIdx) * pixelsPerSample;
+        const level = waveformData[i].levels.get(part.id) || 0;
+        const amplitude = level * trackHeight * 0.8;
+
+        ctx.fillStyle = part.color;
+        ctx.globalAlpha = 0.6;
+        ctx.fillRect(x, baseY - amplitude / 2, Math.max(pixelsPerSample, 1), amplitude || 1);
+      }
+      ctx.globalAlpha = 1;
+    });
+
+    // Draw time markers
+    ctx.fillStyle = '#555';
+    ctx.font = '10px monospace';
+    if (waveformData.length > 0) {
+      const lastTime = waveformData[waveformData.length - 1].time;
+      const startTime = waveformData[Math.max(0, dataLen - 600)].time;
+      for (let t = Math.ceil(startTime); t <= lastTime; t += 5) {
+        const x = ((t - startTime) / (lastTime - startTime || 1)) * w;
+        ctx.fillText(formatTime(t), x, h - 4);
+      }
+    }
+  }, [waveformData]);
 
   const handlePause = () => {
     pauseRecording(recordersRef.current);
@@ -178,6 +223,7 @@ export default function RecordingScreen({
 
   const handleStop = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
+    cancelAnimationFrame(animFrameRef.current);
 
     const blobs = await stopRecording(recordersRef.current);
     const savedFiles: string[] = [];
@@ -193,24 +239,33 @@ export default function RecordingScreen({
     }
 
     // Leave room and stop local stream
-    if (roomRef.current) roomRef.current.room.leave();
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => t.stop());
+    if (roomData.room) roomData.room.room.leave();
+    if (roomData.localStream) {
+      roomData.localStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+    }
+    if (roomData.noiseFilter) {
+      roomData.noiseFilter.cleanup();
     }
 
     onFinished(savedFiles);
   };
 
   const toggleMute = (peerId: string) => {
-    setPeers((prev) => {
+    setMuted((prev) => {
       const next = new Map(prev);
-      const peer = next.get(peerId);
-      if (peer) {
-        next.set(peerId, { ...peer, muted: !peer.muted });
-        // Actually mute/unmute the audio
-        if (peer.stream) {
+      const wasMuted = next.get(peerId) || false;
+      next.set(peerId, !wasMuted);
+
+      // Actually mute/unmute the audio
+      if (peerId === 'local' && roomData.filteredStream) {
+        roomData.filteredStream.getAudioTracks().forEach((t) => {
+          t.enabled = wasMuted; // toggle
+        });
+      } else {
+        const peer = roomData.peers.get(peerId);
+        if (peer?.stream) {
           peer.stream.getAudioTracks().forEach((t) => {
-            t.enabled = peer.muted; // toggling, so if currently muted -> enable
+            t.enabled = wasMuted;
           });
         }
       }
@@ -218,15 +273,9 @@ export default function RecordingScreen({
     });
   };
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(inviteLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
-    const sec = s % 60;
+    const sec = Math.floor(s % 60);
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
@@ -235,73 +284,69 @@ export default function RecordingScreen({
       {/* Header */}
       <div style={styles.header}>
         <h2 style={styles.title}>{config.sessionName}</h2>
-        {recordingState !== 'waiting' && (
-          <div style={styles.timer}>
-            <span
-              style={{
-                ...styles.dot,
-                background:
-                  recordingState === 'recording' ? '#e94560' : '#ffa500',
-              }}
-            />
-            {formatTime(elapsed)}
-          </div>
-        )}
-      </div>
-
-      {/* Invite Link */}
-      <div style={styles.inviteSection}>
-        <label style={styles.label}>Invite Link (send to guests)</label>
-        <div style={styles.inviteRow}>
-          <input
-            type="text"
-            readOnly
-            value={inviteLink}
-            style={styles.inviteInput}
+        <div style={styles.timer}>
+          <span
+            style={{
+              ...styles.dot,
+              background: recordingState === 'recording' ? '#e94560' : '#ffa500',
+              animation: recordingState === 'recording' ? 'pulse 1s infinite' : 'none',
+            }}
           />
-          <button onClick={copyLink} style={styles.copyBtn}>
-            {copied ? 'Copied!' : 'Copy'}
-          </button>
+          {formatTime(elapsed)}
         </div>
-        <p style={styles.hint}>
-          {peers.size === 0
-            ? 'Waiting for guests to join...'
-            : `${peers.size} guest${peers.size > 1 ? 's' : ''} connected`}
-        </p>
       </div>
 
-      {/* Participants */}
-      <div style={styles.participants}>
-        {/* Host (you) */}
-        <ParticipantCard name="You (Host)" isHost muted={false} />
+      {/* Main area: Participants left, Waveform right */}
+      <div style={styles.mainArea}>
+        {/* Participant column */}
+        <div style={styles.participantColumn}>
+          {allParticipants.current.map((part) => (
+            <div
+              key={part.id}
+              style={{
+                ...styles.participantCard,
+                borderColor: speaking.get(part.id) ? '#4caf50' : '#0f3460',
+                boxShadow: speaking.get(part.id) ? '0 0 8px rgba(76,175,80,0.3)' : 'none',
+              }}
+            >
+              <div style={{ ...styles.avatar, background: part.color }}>
+                {part.name.charAt(0).toUpperCase()}
+              </div>
+              <span style={styles.participantName}>{part.name}</span>
+              {/* Level meter */}
+              <div style={styles.levelBar}>
+                <div
+                  style={{
+                    ...styles.levelFill,
+                    width: `${Math.min((levels.get(part.id) || 0) * 300, 100)}%`,
+                    background: part.color,
+                  }}
+                />
+              </div>
+              <button
+                onClick={() => toggleMute(part.id)}
+                style={{
+                  ...styles.muteBtn,
+                  background: muted.get(part.id) ? '#e94560' : '#16213e',
+                }}
+              >
+                {muted.get(part.id) ? 'Unmute' : 'Mute'}
+              </button>
+            </div>
+          ))}
+        </div>
 
-        {/* Remote peers */}
-        {Array.from(peers.values()).map((peer) => (
-          <ParticipantCard
-            key={peer.id}
-            name={peer.name}
-            muted={peer.muted}
-            onToggleMute={() => toggleMute(peer.id)}
-            connected={!!peer.stream}
+        {/* Live waveform canvas */}
+        <div style={styles.waveformContainer}>
+          <canvas
+            ref={waveformCanvasRef}
+            style={styles.waveformCanvas}
           />
-        ))}
-
-        {/* Empty slots */}
-        {Array.from({ length: 3 - peers.size }).map((_, i) => (
-          <div key={`empty-${i}`} style={styles.emptySlot}>
-            <div style={styles.emptyIcon}>?</div>
-            <span style={styles.emptyLabel}>Empty slot</span>
-          </div>
-        ))}
+        </div>
       </div>
 
       {/* Controls */}
       <div style={styles.controls}>
-        {recordingState === 'waiting' && (
-          <button onClick={handleStartRecording} style={styles.recordBtn}>
-            Start Recording
-          </button>
-        )}
         {recordingState === 'recording' && (
           <>
             <button onClick={handlePause} style={styles.pauseBtn}>
@@ -327,54 +372,13 @@ export default function RecordingScreen({
   );
 }
 
-function ParticipantCard({
-  name,
-  isHost,
-  muted,
-  onToggleMute,
-  connected,
-}: {
-  name: string;
-  isHost?: boolean;
-  muted: boolean;
-  onToggleMute?: () => void;
-  connected?: boolean;
-}) {
-  const initial = name.charAt(0).toUpperCase();
-  return (
-    <div style={styles.participant}>
-      <div
-        style={{
-          ...styles.avatar,
-          background: isHost ? '#e94560' : '#0f3460',
-          opacity: connected === false ? 0.5 : 1,
-        }}
-      >
-        {initial}
-      </div>
-      <span style={styles.participantName}>{name}</span>
-      {!isHost && onToggleMute && (
-        <button
-          onClick={onToggleMute}
-          style={{
-            ...styles.muteBtn,
-            background: muted ? '#e94560' : '#16213e',
-          }}
-        >
-          {muted ? 'Unmute' : 'Mute'}
-        </button>
-      )}
-    </div>
-  );
-}
-
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    padding: '24px 32px',
+    padding: '16px 24px',
     display: 'flex',
     flexDirection: 'column' as const,
     height: '100vh',
-    gap: 20,
+    gap: 12,
   },
   header: {
     display: 'flex',
@@ -383,7 +387,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   title: {
     color: '#e0e0e0',
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 600,
   },
   timer: {
@@ -391,117 +395,86 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 8,
     color: '#e0e0e0',
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: 'monospace',
   },
   dot: {
-    width: 10,
-    height: 10,
+    width: 12,
+    height: 12,
     borderRadius: '50%',
     display: 'inline-block',
   },
-  inviteSection: {
+  mainArea: {
+    display: 'flex',
+    flex: 1,
+    gap: 16,
+    overflow: 'hidden',
+  },
+  participantColumn: {
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: 6,
+    gap: 10,
+    width: 140,
+    flexShrink: 0,
   },
-  label: {
-    fontSize: 13,
-    color: '#a0a0b8',
-  },
-  inviteRow: {
-    display: 'flex',
-    gap: 8,
-  },
-  inviteInput: {
-    flex: 1,
-    background: '#16213e',
-    border: '1px solid #0f3460',
-    borderRadius: 6,
-    color: '#e0e0e0',
-    padding: '8px 12px',
-    fontSize: 13,
-  },
-  copyBtn: {
-    background: '#0f3460',
-    color: '#e0e0e0',
-    padding: '8px 16px',
-    borderRadius: 6,
-    fontSize: 13,
-    border: 'none',
-    cursor: 'pointer',
-  },
-  hint: {
-    color: '#a0a0b8',
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  participants: {
-    display: 'flex',
-    gap: 16,
-    flexWrap: 'wrap' as const,
-    flex: 1,
-    alignContent: 'flex-start',
-  },
-  participant: {
+  participantCard: {
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
-    gap: 8,
-    padding: 16,
+    gap: 6,
+    padding: 12,
     background: '#16213e',
     borderRadius: 10,
-    width: 120,
+    border: '2px solid #0f3460',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
   },
   avatar: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#fff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 700,
   },
   participantName: {
     color: '#e0e0e0',
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center' as const,
   },
+  levelBar: {
+    width: '100%',
+    height: 4,
+    background: '#0d1117',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  levelFill: {
+    height: '100%',
+    borderRadius: 2,
+    transition: 'width 0.05s',
+  },
   muteBtn: {
-    padding: '4px 10px',
+    padding: '3px 8px',
     borderRadius: 4,
     color: '#e0e0e0',
-    fontSize: 11,
+    fontSize: 10,
     border: '1px solid #0f3460',
     cursor: 'pointer',
   },
-  emptySlot: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    gap: 8,
-    padding: 16,
-    background: '#16213e',
-    borderRadius: 10,
-    width: 120,
-    opacity: 0.3,
+  waveformContainer: {
+    flex: 1,
+    background: '#0d1117',
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative' as const,
   },
-  emptyIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#a0a0b8',
-    fontSize: 20,
-    border: '2px dashed #0f3460',
-  },
-  emptyLabel: {
-    color: '#a0a0b8',
-    fontSize: 12,
+  waveformCanvas: {
+    width: '100%',
+    height: '100%',
+    display: 'block',
   },
   controls: {
     display: 'flex',
@@ -509,16 +482,6 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     paddingTop: 12,
     borderTop: '1px solid #0f3460',
-  },
-  recordBtn: {
-    background: '#e94560',
-    color: '#fff',
-    padding: '12px 32px',
-    fontSize: 16,
-    fontWeight: 600,
-    borderRadius: 8,
-    border: 'none',
-    cursor: 'pointer',
   },
   pauseBtn: {
     background: '#ffa500',

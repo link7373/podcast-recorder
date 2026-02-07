@@ -1,24 +1,30 @@
 import { useState, useCallback } from 'react';
 import SetupScreen, { SessionConfig } from './screens/SetupScreen';
+import GreenRoomScreen, { GreenRoomData } from './screens/GreenRoomScreen';
 import RecordingScreen from './screens/RecordingScreen';
 import EditorScreen from './screens/EditorScreen';
 
-type Screen = 'setup' | 'recording' | 'editor';
+type Screen = 'setup' | 'greenroom' | 'recording' | 'editor';
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('setup');
-  const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(
-    null
-  );
+  const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(null);
+  const [roomData, setRoomData] = useState<GreenRoomData | null>(null);
   const [trackFiles, setTrackFiles] = useState<string[]>([]);
 
   const handleStartSession = (config: SessionConfig) => {
     setSessionConfig(config);
+    setScreen('greenroom');
+  };
+
+  const handleStartRecording = (data: GreenRoomData) => {
+    setRoomData(data);
     setScreen('recording');
   };
 
   const handleRecordingFinished = (files: string[]) => {
     setTrackFiles(files);
+    setRoomData(null);
     setScreen('editor');
   };
 
@@ -30,7 +36,6 @@ export default function App() {
     if (!savePath) return;
 
     try {
-      // Get full paths to track files
       const fullPaths = trackFiles.map(
         (f) => `${sessionConfig.saveFolder.replace(/\\/g, '/')}/${f}`
       );
@@ -46,6 +51,7 @@ export default function App() {
   const handleNewSession = () => {
     setScreen('setup');
     setSessionConfig(null);
+    setRoomData(null);
     setTrackFiles([]);
   };
 
@@ -54,9 +60,16 @@ export default function App() {
       {screen === 'setup' && (
         <SetupScreen onStartSession={handleStartSession} />
       )}
-      {screen === 'recording' && sessionConfig && (
+      {screen === 'greenroom' && sessionConfig && (
+        <GreenRoomScreen
+          config={sessionConfig}
+          onStartRecording={handleStartRecording}
+        />
+      )}
+      {screen === 'recording' && sessionConfig && roomData && (
         <RecordingScreen
           config={sessionConfig}
+          roomData={roomData}
           onFinished={handleRecordingFinished}
         />
       )}
