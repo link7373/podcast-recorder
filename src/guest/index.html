@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Join Podcast Session</title>
+    <link rel="stylesheet" href="guest.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Podcast Recorder</h1>
+      <p class="subtitle">You've been invited to join a recording session</p>
+
+      <div class="avatar" id="avatar">?</div>
+
+      <input
+        type="text"
+        class="name-input"
+        id="nameInput"
+        placeholder="Your name"
+        maxlength="20"
+      />
+
+      <p class="status" id="status">Enter your name to join</p>
+
+      <button class="join-btn" id="joinBtn" disabled>Join Session</button>
+
+      <p class="muted-indicator" id="mutedIndicator">
+        You have been muted by the host
+      </p>
+    </div>
+
+    <script type="module" src="guest.ts"></script>
+  </body>
+</html>

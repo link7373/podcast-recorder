@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Join Podcast Session</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          Helvetica, Arial, sans-serif;
+        background: #1a1a2e;
+        color: #e0e0e0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        text-align: center;
+        max-width: 400px;
+        padding: 40px;
+      }
+
+      h1 { color: #e94560; font-size: 24px; margin-bottom: 8px; }
+      .subtitle { color: #a0a0b8; font-size: 14px; margin-bottom: 32px; }
+
+      .status { color: #a0a0b8; font-size: 16px; margin-bottom: 24px; }
+      .status.connected { color: #4caf50; }
+      .status.error { color: #ff6b6b; }
+
+      .avatar {
+        width: 80px; height: 80px; border-radius: 50%;
+        background: #e94560; display: flex; align-items: center;
+        justify-content: center; color: #fff; font-size: 32px;
+        font-weight: 700; margin: 0 auto 16px;
+      }
+
+      .name-input {
+        background: #16213e; border: 1px solid #0f3460; border-radius: 6px;
+        color: #e0e0e0; padding: 10px 16px; font-size: 16px; width: 100%;
+        outline: none; text-align: center; margin-bottom: 16px;
+      }
+      .name-input:focus { border-color: #e94560; }
+
+      .join-btn {
+        background: #e94560; color: #fff; border: none; border-radius: 8px;
+        padding: 14px 32px; font-size: 16px; font-weight: 600;
+        cursor: pointer; transition: opacity 0.15s;
+      }
+      .join-btn:hover { opacity: 0.85; }
+      .join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .muted-indicator {
+        color: #ffa500; font-size: 14px; margin-top: 16px; display: none;
+      }
+      .muted-indicator.visible { display: block; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Podcast Recorder</h1>
+      <p class="subtitle">You've been invited to join a recording session</p>
+
+      <div class="avatar" id="avatar">?</div>
+
+      <input
+        type="text"
+        class="name-input"
+        id="nameInput"
+        placeholder="Your name"
+        maxlength="20"
+      />
+
+      <p class="status" id="status">Enter your name to join</p>
+
+      <button class="join-btn" id="joinBtn" disabled>Join Session</button>
+
+      <p class="muted-indicator" id="mutedIndicator">
+        You have been muted by the host
+      </p>
+    </div>
+
+    <script type="module">
+      import { joinRoom } from 'https://esm.sh/trystero@0.22.0/torrent';
+
+      const APP_ID = 'podcast-recorder-v1';
+
+      const nameInput = document.getElementById('nameInput');
+      const joinBtn = document.getElementById('joinBtn');
+      const statusEl = document.getElementById('status');
+      const avatarEl = document.getElementById('avatar');
+      const mutedEl = document.getElementById('mutedIndicator');
+
+      // Extract room ID from URL hash
+      const roomId = window.location.hash.slice(1);
+
+      if (!roomId) {
+        statusEl.textContent = 'Invalid invite link \u2014 no room ID found';
+        statusEl.className = 'status error';
+      } else {
+        nameInput.addEventListener('input', () => {
+          const name = nameInput.value.trim();
+          joinBtn.disabled = name.length === 0;
+          avatarEl.textContent = name ? name.charAt(0).toUpperCase() : '?';
+        });
+
+        joinBtn.addEventListener('click', async () => {
+          const name = nameInput.value.trim();
+          if (!name) return;
+
+          joinBtn.disabled = true;
+          nameInput.disabled = true;
+          statusEl.textContent = 'Requesting microphone access...';
+
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            statusEl.textContent = 'Connecting to session...';
+
+            const room = joinRoom({ appId: APP_ID }, roomId);
+            const [sendName] = room.makeAction('name');
+
+            room.onPeerJoin(() => {
+              sendName(name);
+              room.addStream(stream);
+              statusEl.textContent = 'Connected! Recording may be in progress.';
+              statusEl.className = 'status connected';
+            });
+
+            room.onPeerLeave(() => {
+              statusEl.textContent = 'Host disconnected. You can close this tab.';
+              statusEl.className = 'status';
+            });
+
+            // Listen for mute commands from host
+            const [, onMuteCommand] = room.makeAction('mute-command');
+            onMuteCommand((peerId) => {
+              if (peerId === 'all' || peerId === room.selfId) {
+                const audioTrack = stream.getAudioTracks()[0];
+                audioTrack.enabled = !audioTrack.enabled;
+                mutedEl.classList.toggle('visible', !audioTrack.enabled);
+              }
+            });
+
+            // Play audio from other peers so guest can hear everyone
+            room.onPeerStream((peerStream) => {
+              const audio = new Audio();
+              audio.srcObject = peerStream;
+              audio.play();
+            });
+
+          } catch (err) {
+            statusEl.textContent = 'Microphone error: ' + (err.message || String(err));
+            statusEl.className = 'status error';
+            joinBtn.disabled = false;
+            nameInput.disabled = false;
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
