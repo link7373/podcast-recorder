@@ -1,8 +1,8 @@
 {
   "name": "podcast-recorder",
   "productName": "podcast-recorder",
-  "version": "1.0.0",
-  "description": "My Electron application description",
+  "version": "1.1.0",
+  "description": "Multi-track podcast recorder with remote guests via WebRTC",
   "main": ".webpack/main",
   "private": true,
   "scripts": {

@@ -13,7 +13,9 @@ export interface RoomSession {
   room: Room;
   roomId: string;
   sendName: (name: string) => void;
+  onName: (callback: (name: string, peerId: string) => void) => void;
   sendMuteCommand: (peerId: string) => void;
+  onMuteCommand: (callback: (targetId: string, peerId: string) => void) => void;
 }
 
 export function createRoom(roomId: string): RoomSession {
@@ -23,15 +25,13 @@ export function createRoom(roomId: string): RoomSession {
   const [sendMuteCommand, onMuteCommand] =
     room.makeAction<string>('mute-command');
 
-  // Store handlers so callers can attach listeners
-  (room as any)._onName = onName;
-  (room as any)._onMuteCommand = onMuteCommand;
-
   return {
     room,
     roomId,
     sendName: (name: string) => sendName(name),
+    onName,
     sendMuteCommand: (peerId: string) => sendMuteCommand(peerId),
+    onMuteCommand,
   };
 }
 

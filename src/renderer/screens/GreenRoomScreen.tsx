@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { SessionConfig } from './SetupScreen';
-import { createRoom, generateRoomId, getInviteLink, Peer } from '../lib/trystero-room';
+import { createRoom, generateRoomId, getInviteLink } from '../lib/trystero-room';
 import {
   createNoiseFilteredStream,
   getAudioLevel,
@@ -93,7 +93,7 @@ export default function GreenRoomScreen({
 
       // Peer join
       session.room.onPeerJoin((peerId: string) => {
-        session.sendName(config.sessionName);
+        session.sendName('Host');
 
         setParticipants((prev) => {
           const next = new Map(prev);
@@ -127,19 +127,16 @@ export default function GreenRoomScreen({
       });
 
       // Receive peer names
-      const onName = (session.room as any)._onName;
-      if (onName) {
-        onName((name: string, peerId: string) => {
-          setParticipants((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(peerId);
-            if (existing) {
-              next.set(peerId, { ...existing, name });
-            }
-            return next;
-          });
+      session.onName((name: string, peerId: string) => {
+        setParticipants((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(peerId);
+          if (existing) {
+            next.set(peerId, { ...existing, name });
+          }
+          return next;
         });
-      }
+      });
 
       // Peer streams
       session.room.onPeerStream((stream: MediaStream, peerId: string) => {
@@ -153,7 +150,7 @@ export default function GreenRoomScreen({
         // Play peer audio so everyone can hear in green room
         const audio = new Audio();
         audio.srcObject = stream;
-        audio.play();
+        audio.play().catch(() => {});
 
         peerAnalysersRef.current.set(peerId, {
           analyser,

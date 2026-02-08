@@ -25,8 +25,13 @@ export default function SetupScreen({ onStartSession }: SetupScreenProps) {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>Podcast Recorder</h1>
-      <p style={styles.subtitle}>Set up your recording session</p>
+      <div style={styles.headerRow}>
+        <div>
+          <h1 style={styles.title}>Podcast Recorder</h1>
+          <p style={styles.subtitle}>Set up your recording session</p>
+        </div>
+        <span style={styles.version}>v1.1.0</span>
+      </div>
 
       {error && <p style={styles.error}>Audio error: {error}</p>}
 
@@ -180,6 +185,12 @@ const styles: Record<string, React.CSSProperties> = {
     overflowY: 'auto',
     height: '100vh',
   },
+  headerRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 28,
+  },
   title: {
     color: '#e94560',
     fontSize: 28,
@@ -189,7 +200,11 @@ const styles: Record<string, React.CSSProperties> = {
   subtitle: {
     color: '#a0a0b8',
     fontSize: 14,
-    marginBottom: 28,
+  },
+  version: {
+    color: '#555',
+    fontSize: 12,
+    fontFamily: 'monospace',
   },
   error: {
     color: '#ff6b6b',

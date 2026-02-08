@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -92,8 +92,7 @@ export function registerIpcHandlers(): void {
       return files
         .filter(
           (f) => f.startsWith(sessionName) && (f.endsWith('.wav') || f.endsWith('.webm'))
-        )
-        .map((f) => path.join(folder, f));
+        );
     }
   );
 }

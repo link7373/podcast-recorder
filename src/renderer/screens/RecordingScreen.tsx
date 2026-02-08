@@ -32,6 +32,7 @@ export default function RecordingScreen({
   const [levels, setLevels] = useState<Map<string, number>>(new Map());
   const [speaking, setSpeaking] = useState<Map<string, boolean>>(new Map());
   const [muted, setMuted] = useState<Map<string, boolean>>(new Map());
+  const [isSaving, setIsSaving] = useState(false);
   // Live waveform data: array of snapshots { time, levels: Map<string, number> }
   const [waveformData, setWaveformData] = useState<Array<{ time: number; levels: Map<string, number> }>>([]);
 
@@ -256,9 +257,8 @@ export default function RecordingScreen({
     }, 1000);
   };
 
-  const [isSaving, setIsSaving] = useState(false);
-
   const handleStop = async () => {
+    if (!confirm('Stop recording and save all tracks?')) return;
     if (timerRef.current) clearInterval(timerRef.current);
     cancelAnimationFrame(animFrameRef.current);
     setIsSaving(true);
@@ -298,6 +298,12 @@ export default function RecordingScreen({
     }
   };
 
+  function formatTime(s: number) {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  }
+
   const toggleMute = (peerId: string) => {
     setMuted((prev) => {
       const next = new Map(prev);
@@ -319,12 +325,6 @@ export default function RecordingScreen({
       }
       return next;
     });
-  };
-
-  const formatTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -402,10 +402,10 @@ export default function RecordingScreen({
         ) : (
           <>
             <button onClick={handleFadeToMute} style={styles.fadeBtn}>
-              Fade to Mute
+              Mute All
             </button>
             <button onClick={handleFadeBackIn} style={styles.fadeBtn}>
-              Fade Back In
+              Unmute All
             </button>
 
             <div style={styles.controlDivider} />

@@ -151,6 +151,13 @@
       }
       .muted-badge.visible { display: block; }
 
+      .btn-row {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 12px;
+      }
+
       .mute-self-btn {
         background: #16213e;
         color: #e0e0e0;
@@ -165,6 +172,18 @@
         background: #e94560;
         border-color: #e94560;
       }
+
+      .leave-btn {
+        background: #333;
+        color: #e0e0e0;
+        border: 1px solid #555;
+        border-radius: 6px;
+        padding: 10px 24px;
+        font-size: 14px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .leave-btn:hover { background: #444; }
     </style>
   </head>
   <body>
@@ -183,8 +202,9 @@
         <p class="status connected" id="connectedStatus" style="text-align:center; margin-bottom:12px;">Connected! Waiting for others...</p>
         <p class="participants-label">Participants</p>
         <div class="participants-grid" id="participantsGrid"></div>
-        <div style="text-align: center; margin-top: 12px;">
+        <div class="btn-row">
           <button class="mute-self-btn" id="muteSelfBtn">Mute</button>
+          <button class="leave-btn" id="leaveBtn">Leave</button>
         </div>
       </div>
 
@@ -207,6 +227,7 @@
       const participantsSection = document.getElementById('participantsSection');
       const participantsGrid = document.getElementById('participantsGrid');
       const muteSelfBtn = document.getElementById('muteSelfBtn');
+      const leaveBtn = document.getElementById('leaveBtn');
 
       const roomId = window.location.hash.slice(1);
       const peers = new Map();
@@ -215,6 +236,8 @@
       let myAnalyser = null;
       let myAudioCtx = null;
       let isMuted = false;
+      let animFrameId = 0;
+      let currentRoom = null;
 
       if (!roomId) {
         joinStatus.textContent = 'Invalid invite link \u2014 no room ID found';
@@ -247,7 +270,10 @@
             source.connect(myAnalyser);
 
             const room = joinRoom({ appId: APP_ID }, roomId);
-            const [sendName] = room.makeAction('name');
+            currentRoom = room;
+
+            // Single makeAction call for 'name' (fixes dual call bug)
+            const [sendName, onName] = room.makeAction('name');
 
             room.onPeerJoin((peerId) => {
               sendName(myName);
@@ -267,7 +293,6 @@
               }
             });
 
-            const [, onName] = room.makeAction('name');
             onName((name, peerId) => {
               const peer = peers.get(peerId);
               if (peer) { peer.name = name; renderParticipants(); }
@@ -279,7 +304,7 @@
               peer.stream = peerStream;
               const audio = new Audio();
               audio.srcObject = peerStream;
-              audio.play();
+              audio.play().catch(() => {});
               const ctx = new AudioContext();
               const src = ctx.createMediaStreamSource(peerStream);
               const analyser = ctx.createAnalyser();
@@ -314,6 +339,10 @@
               updateMuteBtn();
             });
 
+            leaveBtn.addEventListener('click', () => {
+              leaveSession();
+            });
+
           } catch (err) {
             joinStatus.textContent = 'Microphone error: ' + (err.message || String(err));
             joinStatus.className = 'status error';
@@ -321,6 +350,21 @@
             nameInput.disabled = false;
           }
         });
+      }
+
+      function leaveSession() {
+        cancelAnimationFrame(animFrameId);
+        if (currentRoom) currentRoom.leave();
+        if (myStream) myStream.getTracks().forEach(t => t.stop());
+        if (myAudioCtx) myAudioCtx.close();
+        peers.forEach((peer) => { if (peer.audioCtx) peer.audioCtx.close(); });
+        peers.clear();
+        participantsSection.classList.remove('visible');
+        joinForm.style.display = 'flex';
+        joinStatus.textContent = 'You left the session.';
+        joinStatus.className = 'status';
+        joinBtn.disabled = true;
+        nameInput.disabled = true;
       }
 
       function updateMuteBtn() {
@@ -394,9 +438,9 @@
               if (card) card.classList.toggle('speaking', speaking);
             }
           });
-          requestAnimationFrame(update);
+          animFrameId = requestAnimationFrame(update);
         }
-        requestAnimationFrame(update);
+        animFrameId = requestAnimationFrame(update);
       }
     </script>
   </body>

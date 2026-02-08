@@ -17,7 +17,8 @@ export function useAudioDevices(): AudioDevices {
     async function enumerate() {
       try {
         // Request mic permission first so device labels are populated
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const permStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        permStream.getTracks().forEach((t) => t.stop());
         const devices = await navigator.mediaDevices.enumerateDevices();
         setInputs(devices.filter((d) => d.kind === 'audioinput'));
         setOutputs(devices.filter((d) => d.kind === 'audiooutput'));

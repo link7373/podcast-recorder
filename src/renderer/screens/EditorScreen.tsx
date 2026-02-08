@@ -171,9 +171,9 @@ export default function EditorScreen({
     }
   }, []);
 
-  const handleCut = useCallback(() => {
+  // Trim keeps only the selected region and removes everything outside it
+  const handleTrim = useCallback(() => {
     if (playlistRef.current) {
-      // Use the event emitter to trigger trim (removes selected region)
       const ee = playlistRef.current.getEventEmitter();
       ee.emit('trim');
     }
@@ -207,14 +207,35 @@ export default function EditorScreen({
   const handleFadeOut = useCallback(() => {
     if (playlistRef.current) {
       const ee = playlistRef.current.getEventEmitter();
-      ee.emit('fadeout');
+      ee.emit('statechange', 'fadeout');
     }
   }, []);
 
   const handleFadeIn = useCallback(() => {
     if (playlistRef.current) {
       const ee = playlistRef.current.getEventEmitter();
-      ee.emit('fadein');
+      ee.emit('statechange', 'fadein');
+    }
+  }, []);
+
+  const handleSelectMode = useCallback(() => {
+    if (playlistRef.current) {
+      const ee = playlistRef.current.getEventEmitter();
+      ee.emit('statechange', 'select');
+    }
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    if (playlistRef.current) {
+      const ee = playlistRef.current.getEventEmitter();
+      ee.emit('zoomin');
+    }
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    if (playlistRef.current) {
+      const ee = playlistRef.current.getEventEmitter();
+      ee.emit('zoomout');
     }
   }, []);
 
@@ -223,11 +244,12 @@ export default function EditorScreen({
     setProcessingDeadAir(true);
 
     try {
-      const { detectDeadAirAcrossTracks } = await import('../lib/dead-air-remover');
+      const { detectSilence } = await import('../lib/dead-air-remover');
 
       const audioCtx = new AudioContext();
       audioCtxRef.current = audioCtx;
 
+      // Load all track buffers
       const buffers: AudioBuffer[] = [];
       for (const filename of trackFiles) {
         const folder = config.saveFolder.replace(/\\/g, '/');
@@ -238,6 +260,9 @@ export default function EditorScreen({
         buffers.push(audioBuffer);
       }
 
+      // Use the first track (or merge all) to detect silence
+      // Find silence regions that are common across ALL tracks
+      const { detectDeadAirAcrossTracks } = await import('../lib/dead-air-remover');
       const deadAirRegions = detectDeadAirAcrossTracks(buffers, {
         silenceThreshold: 0.01,
         minSilenceDuration: 1.5,
@@ -246,25 +271,98 @@ export default function EditorScreen({
 
       if (deadAirRegions.length === 0) {
         alert('No dead air detected in the recording.');
+        await audioCtx.close();
         setProcessingDeadAir(false);
         return;
       }
 
       const totalDeadAir = deadAirRegions.reduce(
-        (sum, r) => sum + (r.end - r.start),
-        0
+        (sum, r) => sum + (r.end - r.start), 0
       );
 
-      // Process from end to start so positions don't shift
-      const sortedRegions = [...deadAirRegions].sort((a, b) => b.start - a.start);
-      const ee = playlistRef.current.getEventEmitter();
-
-      for (const region of sortedRegions) {
-        ee.emit('select', region.start, region.end);
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        playlistRef.current.trim();
-        await new Promise((resolve) => setTimeout(resolve, 50));
+      // Build keep regions (inverse of dead air)
+      const keepRegions: Array<{ start: number; end: number }> = [];
+      let cursor = 0;
+      const sortedDead = [...deadAirRegions].sort((a, b) => a.start - b.start);
+      for (const region of sortedDead) {
+        if (cursor < region.start) {
+          keepRegions.push({ start: cursor, end: region.start });
+        }
+        cursor = region.end;
       }
+      const maxDuration = Math.max(...buffers.map((b) => b.duration));
+      if (cursor < maxDuration) {
+        keepRegions.push({ start: cursor, end: maxDuration });
+      }
+
+      // Splice each buffer to keep only the speech regions, save new files, reload
+      for (let t = 0; t < buffers.length; t++) {
+        const buf = buffers[t];
+        const sampleRate = buf.sampleRate;
+        const numChannels = buf.numberOfChannels;
+
+        // Calculate total kept samples
+        let totalSamples = 0;
+        for (const kr of keepRegions) {
+          const s = Math.floor(kr.start * sampleRate);
+          const e = Math.min(Math.floor(kr.end * sampleRate), buf.length);
+          totalSamples += (e - s);
+        }
+
+        // Create new buffer with only kept regions
+        const newBuf = audioCtx.createBuffer(numChannels, totalSamples, sampleRate);
+        let writeOffset = 0;
+        for (const kr of keepRegions) {
+          const s = Math.floor(kr.start * sampleRate);
+          const e = Math.min(Math.floor(kr.end * sampleRate), buf.length);
+          const len = e - s;
+          for (let ch = 0; ch < numChannels; ch++) {
+            const srcData = buf.getChannelData(ch);
+            const dstData = newBuf.getChannelData(ch);
+            for (let i = 0; i < len; i++) {
+              dstData[writeOffset + i] = srcData[s + i];
+            }
+          }
+          writeOffset += len;
+        }
+
+        // Convert to WAV and overwrite the original file
+        const wavArrayBuffer = audioBufferToWavBuffer(newBuf);
+        await window.electronAPI.saveFile(config.saveFolder, trackFiles[t], wavArrayBuffer);
+      }
+
+      await audioCtx.close();
+
+      // Reload the playlist with the updated files
+      containerRef.current!.innerHTML = '';
+      const tracks = trackFiles.map((filename, i) => {
+        const color = TRACK_COLORS[i % TRACK_COLORS.length];
+        const rawName = filename.replace(/\.(wav|webm)$/, '').replace(/_/g, ' ');
+        const parts = rawName.split(' ');
+        const name = parts.length >= 3 ? parts.slice(1, -1).join(' ') : rawName;
+        const folder = config.saveFolder.replace(/\\/g, '/');
+        const src = `file:///${folder.replace(/^\//, '')}/${filename}?t=${Date.now()}`;
+        return { src, name, waveOutlineColor: color.wave, backgroundColor: color.bg };
+      });
+
+      const playlist = WaveformPlaylist({
+        container: containerRef.current!,
+        timescale: true,
+        state: 'select',
+        samplesPerPixel: 1000,
+        waveHeight: 100,
+        colors: {
+          waveOutlineColor: '#e94560',
+          timeColor: '#a0a0b8',
+          fadeColor: 'rgba(233, 69, 96, 0.3)',
+        },
+        controls: { show: true, width: 180 },
+        zoomLevels: [500, 1000, 2000, 4000],
+      });
+      playlistRef.current = playlist;
+      await playlist.load(tracks);
+      playlist.initExporter();
+      injectTrackStyles();
 
       alert(
         `Removed ${deadAirRegions.length} dead air region(s), totaling ${totalDeadAir.toFixed(1)} seconds.`
@@ -280,13 +378,18 @@ export default function EditorScreen({
     }
   }, [trackFiles, config.saveFolder]);
 
+  const handleNewSession = useCallback(() => {
+    if (!confirm('Start a new session? Any unsaved changes will be lost.')) return;
+    onNewSession();
+  }, [onNewSession]);
+
   return (
     <div style={styles.container}>
       {/* Header */}
       <div style={styles.header}>
         <h2 style={styles.title}>Editor: {config.sessionName}</h2>
         <div style={styles.headerButtons}>
-          <button onClick={onNewSession} style={styles.secondaryBtn}>
+          <button onClick={handleNewSession} style={styles.secondaryBtn}>
             New Session
           </button>
           <button onClick={onExport} style={styles.exportBtn}>
@@ -300,56 +403,86 @@ export default function EditorScreen({
 
       {/* Toolbar */}
       <div style={styles.toolbar}>
-        <div style={styles.toolGroup}>
-          {!isPlaying ? (
-            <button onClick={handlePlay} style={styles.toolBtn}>
-              &#9654; Play
+        {/* Transport */}
+        <div style={styles.toolSection}>
+          <span style={styles.toolSectionLabel}>Transport</span>
+          <div style={styles.toolGroup}>
+            {!isPlaying ? (
+              <button onClick={handlePlay} style={styles.toolBtn}>
+                &#9654; Play
+              </button>
+            ) : (
+              <button onClick={handlePause} style={styles.toolBtn}>
+                &#10074;&#10074; Pause
+              </button>
+            )}
+            <button onClick={handleStop} style={styles.toolBtn}>
+              &#9632; Stop
             </button>
-          ) : (
-            <button onClick={handlePause} style={styles.toolBtn}>
-              &#10074;&#10074; Pause
+          </div>
+        </div>
+
+        <div style={styles.divider} />
+
+        {/* Edit */}
+        <div style={styles.toolSection}>
+          <span style={styles.toolSectionLabel}>Edit</span>
+          <div style={styles.toolGroup}>
+            <button onClick={handleTrim} style={styles.toolBtn}>
+              Trim to Selection
             </button>
-          )}
-          <button onClick={handleStop} style={styles.toolBtn}>
-            &#9632; Stop
-          </button>
+            <button onClick={handleBleep} style={styles.toolBtn}>
+              Bleep (1s)
+            </button>
+          </div>
         </div>
 
         <div style={styles.divider} />
 
-        <div style={styles.toolGroup}>
-          <button onClick={handleCut} style={styles.toolBtn}>
-            Cut Selection
-          </button>
-          <button onClick={handleBleep} style={styles.toolBtn}>
-            Bleep (1s)
-          </button>
+        {/* Fades */}
+        <div style={styles.toolSection}>
+          <span style={styles.toolSectionLabel}>Mode</span>
+          <div style={styles.toolGroup}>
+            <button onClick={handleSelectMode} style={styles.toolBtn}>
+              Select
+            </button>
+            <button onClick={handleFadeIn} style={styles.toolBtn}>
+              Fade In
+            </button>
+            <button onClick={handleFadeOut} style={styles.toolBtn}>
+              Fade Out
+            </button>
+          </div>
         </div>
 
         <div style={styles.divider} />
 
-        <div style={styles.toolGroup}>
-          <button onClick={handleFadeOut} style={styles.toolBtn}>
-            Fade Out
-          </button>
-          <button onClick={handleFadeIn} style={styles.toolBtn}>
-            Fade In
-          </button>
+        {/* Zoom */}
+        <div style={styles.toolSection}>
+          <span style={styles.toolSectionLabel}>Zoom</span>
+          <div style={styles.toolGroup}>
+            <button onClick={handleZoomIn} style={styles.toolBtn}>+</button>
+            <button onClick={handleZoomOut} style={styles.toolBtn}>-</button>
+          </div>
         </div>
 
         <div style={styles.divider} />
 
-        <div style={styles.toolGroup}>
-          <button
-            onClick={handleRemoveDeadAir}
-            disabled={processingDeadAir}
-            style={{
-              ...styles.toolBtnAccent,
-              opacity: processingDeadAir ? 0.5 : 1,
-            }}
-          >
-            {processingDeadAir ? 'Processing...' : 'Remove Dead Air'}
-          </button>
+        {/* Tools */}
+        <div style={styles.toolSection}>
+          <span style={styles.toolSectionLabel}>Tools</span>
+          <div style={styles.toolGroup}>
+            <button
+              onClick={handleRemoveDeadAir}
+              disabled={processingDeadAir}
+              style={{
+                ...styles.toolBtnAccent,
+                opacity: processingDeadAir ? 0.5 : 1,
+              }}
+            >
+              {processingDeadAir ? 'Processing...' : 'Remove Dead Air'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -375,6 +508,10 @@ export default function EditorScreen({
 }
 
 function audioBufferToWav(buffer: AudioBuffer): Blob {
+  return new Blob([audioBufferToWavBuffer(buffer)], { type: 'audio/wav' });
+}
+
+function audioBufferToWavBuffer(buffer: AudioBuffer): ArrayBuffer {
   const numOfChan = buffer.numberOfChannels;
   const length = buffer.length * numOfChan * 2 + 44;
   const result = new ArrayBuffer(length);
@@ -415,7 +552,7 @@ function audioBufferToWav(buffer: AudioBuffer): Blob {
     }
   }
 
-  return new Blob([result], { type: 'audio/wav' });
+  return result;
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -475,12 +612,24 @@ const styles: Record<string, React.CSSProperties> = {
   },
   toolbar: {
     display: 'flex',
-    alignItems: 'center',
-    gap: 8,
+    alignItems: 'flex-end',
+    gap: 10,
     padding: '8px 12px',
     background: '#16213e',
     borderRadius: 8,
     flexWrap: 'wrap' as const,
+  },
+  toolSection: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 3,
+  },
+  toolSectionLabel: {
+    fontSize: 9,
+    color: '#666',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+    fontWeight: 600,
   },
   toolGroup: {
     display: 'flex',
@@ -489,7 +638,7 @@ const styles: Record<string, React.CSSProperties> = {
   toolBtn: {
     background: '#0f3460',
     color: '#e0e0e0',
-    padding: '6px 14px',
+    padding: '7px 14px',
     borderRadius: 4,
     fontSize: 12,
     border: 'none',
@@ -498,19 +647,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
   },
   toolBtnAccent: {
-    background: '#e94560',
-    color: '#fff',
-    padding: '6px 14px',
+    background: '#0f3460',
+    color: '#ffa500',
+    padding: '7px 14px',
     borderRadius: 4,
     fontSize: 12,
     fontWeight: 600,
-    border: 'none',
+    border: '1px solid #ffa500',
     cursor: 'pointer',
     whiteSpace: 'nowrap' as const,
   },
   divider: {
     width: 1,
-    height: 24,
+    height: 32,
     background: '#0f3460',
   },
   timeline: {
