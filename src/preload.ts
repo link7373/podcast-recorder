@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  getTempPath: (): Promise<string> =>
+    ipcRenderer.invoke('get-temp-path'),
   selectFolder: (): Promise<string | null> =>
     ipcRenderer.invoke('select-folder'),
   saveFile: (

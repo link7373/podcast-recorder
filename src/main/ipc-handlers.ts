@@ -1,9 +1,18 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { exportMix, ExportOptions } from './ffmpeg';
 
 export function registerIpcHandlers(): void {
+  ipcMain.handle('get-temp-path', async () => {
+    const tempDir = path.join(os.tmpdir(), 'podcast-recorder');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    return tempDir;
+  });
+
   ipcMain.handle('select-folder', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
@@ -23,6 +32,10 @@ export function registerIpcHandlers(): void {
       filename: string,
       data: ArrayBuffer
     ) => {
+      // Ensure directory exists
+      if (!fs.existsSync(folder)) {
+        fs.mkdirSync(folder, { recursive: true });
+      }
       const filePath = path.join(folder, filename);
       fs.writeFileSync(filePath, Buffer.from(data));
       return filePath;

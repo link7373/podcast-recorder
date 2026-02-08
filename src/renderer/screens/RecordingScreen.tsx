@@ -256,33 +256,46 @@ export default function RecordingScreen({
     }, 1000);
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleStop = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
     cancelAnimationFrame(animFrameRef.current);
+    setIsSaving(true);
 
-    const blobs = await stopRecording(recordersRef.current);
-    const savedFiles: string[] = [];
+    try {
+      const blobs = await stopRecording(recordersRef.current);
+      const savedFiles: string[] = [];
 
-    for (const recorder of recordersRef.current) {
-      const blob = blobs.get(recorder.peerId);
-      if (blob) {
-        const safeName = recorder.peerName.replace(/[^a-zA-Z0-9]/g, '_');
-        const filename = `${config.sessionName}_${safeName}_${recorder.peerId.slice(0, 6)}.wav`;
-        await saveTrackToFile(blob, config.saveFolder, filename);
-        savedFiles.push(filename);
+      for (const recorder of recordersRef.current) {
+        const blob = blobs.get(recorder.peerId);
+        if (blob) {
+          const safeName = recorder.peerName.replace(/[^a-zA-Z0-9]/g, '_');
+          const filename = `${config.sessionName}_${safeName}_${recorder.peerId.slice(0, 6)}.wav`;
+          try {
+            await saveTrackToFile(blob, config.saveFolder, filename);
+            savedFiles.push(filename);
+          } catch (err) {
+            console.error(`Failed to save track ${filename}:`, err);
+          }
+        }
       }
-    }
 
-    // Leave room and stop local stream
-    if (roomData.room) roomData.room.room.leave();
-    if (roomData.localStream) {
-      roomData.localStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
-    }
-    if (roomData.noiseFilter) {
-      roomData.noiseFilter.cleanup();
-    }
+      // Leave room and stop local stream
+      if (roomData.room) roomData.room.room.leave();
+      if (roomData.localStream) {
+        roomData.localStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      }
+      if (roomData.noiseFilter) {
+        roomData.noiseFilter.cleanup();
+      }
 
-    onFinished(savedFiles);
+      onFinished(savedFiles);
+    } catch (err) {
+      console.error('Error stopping recording:', err);
+      alert(`Error saving recording: ${err instanceof Error ? err.message : String(err)}`);
+      setIsSaving(false);
+    }
   };
 
   const toggleMute = (peerId: string) => {
@@ -382,33 +395,41 @@ export default function RecordingScreen({
 
       {/* Controls */}
       <div style={styles.controls}>
-        <button onClick={handleFadeToMute} style={styles.fadeBtn}>
-          Fade to Mute
-        </button>
-        <button onClick={handleFadeBackIn} style={styles.fadeBtn}>
-          Fade Back In
-        </button>
-
-        <div style={styles.controlDivider} />
-
-        {recordingState === 'recording' && (
+        {isSaving ? (
+          <span style={{ color: '#ffa500', fontSize: 16, fontWeight: 600 }}>
+            Saving tracks... please wait
+          </span>
+        ) : (
           <>
-            <button onClick={handlePause} style={styles.pauseBtn}>
-              Pause
+            <button onClick={handleFadeToMute} style={styles.fadeBtn}>
+              Fade to Mute
             </button>
-            <button onClick={handleStop} style={styles.stopBtn}>
-              Stop & Save
+            <button onClick={handleFadeBackIn} style={styles.fadeBtn}>
+              Fade Back In
             </button>
-          </>
-        )}
-        {recordingState === 'paused' && (
-          <>
-            <button onClick={handleResume} style={styles.resumeBtn}>
-              Resume
-            </button>
-            <button onClick={handleStop} style={styles.stopBtn}>
-              Stop & Save
-            </button>
+
+            <div style={styles.controlDivider} />
+
+            {recordingState === 'recording' && (
+              <>
+                <button onClick={handlePause} style={styles.pauseBtn}>
+                  Pause
+                </button>
+                <button onClick={handleStop} style={styles.stopBtn}>
+                  Stop & Save
+                </button>
+              </>
+            )}
+            {recordingState === 'paused' && (
+              <>
+                <button onClick={handleResume} style={styles.resumeBtn}>
+                  Resume
+                </button>
+                <button onClick={handleStop} style={styles.stopBtn}>
+                  Stop & Save
+                </button>
+              </>
+            )}
           </>
         )}
       </div>

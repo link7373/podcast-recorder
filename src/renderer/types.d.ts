@@ -1,4 +1,5 @@
 interface ElectronAPI {
+  getTempPath: () => Promise<string>;
   selectFolder: () => Promise<string | null>;
   saveFile: (folder: string, filename: string, data: ArrayBuffer) => Promise<string>;
   selectSaveFile: (defaultName: string) => Promise<string | null>;

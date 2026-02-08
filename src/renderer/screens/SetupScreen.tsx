@@ -7,7 +7,7 @@ export interface SessionConfig {
   outputDeviceId: string;
   noiseFilter: boolean;
   inputLevel: number;
-  saveFolder: string;
+  saveFolder: string; // auto-set to temp dir; user picks location at export
 }
 
 interface SetupScreenProps {
@@ -21,14 +21,7 @@ export default function SetupScreen({ onStartSession }: SetupScreenProps) {
   const [outputDeviceId, setOutputDeviceId] = useState('');
   const [noiseFilter, setNoiseFilter] = useState(true);
   const [inputLevel, setInputLevel] = useState(80);
-  const [saveFolder, setSaveFolder] = useState('');
-
-  const handleSelectFolder = async () => {
-    const folder = await window.electronAPI.selectFolder();
-    if (folder) setSaveFolder(folder);
-  };
-
-  const canStart = sessionName.trim() && saveFolder;
+  const canStart = sessionName.trim();
 
   return (
     <div style={styles.container}>
@@ -110,40 +103,24 @@ export default function SetupScreen({ onStartSession }: SetupScreenProps) {
           />
         </Field>
 
-        {/* Save Folder */}
-        <Field label="Save Folder">
-          <div style={styles.folderRow}>
-            <input
-              type="text"
-              readOnly
-              value={saveFolder}
-              placeholder="Choose a folder..."
-              style={{ ...styles.input, flex: 1, cursor: 'pointer' }}
-              onClick={handleSelectFolder}
-            />
-            <button onClick={handleSelectFolder} style={styles.browseBtn}>
-              Browse
-            </button>
-          </div>
-        </Field>
-
         {/* Start Button */}
         <button
           style={{
             ...styles.startBtn,
             opacity: canStart ? 1 : 0.5,
           }}
-          onClick={() =>
-            canStart &&
+          onClick={async () => {
+            if (!canStart) return;
+            const tempFolder = await window.electronAPI.getTempPath();
             onStartSession({
               sessionName: sessionName.trim(),
               inputDeviceId,
               outputDeviceId,
               noiseFilter,
               inputLevel,
-              saveFolder,
-            })
-          }
+              saveFolder: tempFolder,
+            });
+          }}
           disabled={!canStart}
         >
           Start Session
@@ -267,20 +244,6 @@ const styles: Record<string, React.CSSProperties> = {
   slider: {
     width: '100%',
     accentColor: '#e94560',
-  },
-  folderRow: {
-    display: 'flex',
-    gap: 8,
-  },
-  browseBtn: {
-    background: '#0f3460',
-    color: '#e0e0e0',
-    padding: '8px 16px',
-    borderRadius: 6,
-    fontSize: 13,
-    border: 'none',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
   },
   startBtn: {
     background: '#e94560',
