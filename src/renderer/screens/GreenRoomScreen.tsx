@@ -46,6 +46,7 @@ export default function GreenRoomScreen({
   const [copied, setCopied] = useState(false);
   const [localLevel, setLocalLevel] = useState(0);
   const [localSpeaking, setLocalSpeaking] = useState(false);
+  const [localMuted, setLocalMuted] = useState(false);
 
   const roomRef = useRef<ReturnType<typeof createRoom> | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -230,6 +231,30 @@ export default function GreenRoomScreen({
     return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
 
+  const toggleMute = (id: string) => {
+    if (id === 'local') {
+      // Mute/unmute host's own mic
+      if (noiseFilterRef.current) {
+        const tracks = noiseFilterRef.current.outputStream.getAudioTracks();
+        const newMuted = !localMuted;
+        tracks.forEach((t) => { t.enabled = !newMuted; });
+        setLocalMuted(newMuted);
+      }
+    } else {
+      // Mute/unmute a remote peer
+      setParticipants((prev) => {
+        const next = new Map(prev);
+        const peer = next.get(id);
+        if (peer && peer.stream) {
+          const newMuted = !peer.muted;
+          peer.stream.getAudioTracks().forEach((t) => { t.enabled = !newMuted; });
+          next.set(id, { ...peer, muted: newMuted });
+        }
+        return next;
+      });
+    }
+  };
+
   const copyLink = () => {
     navigator.clipboard.writeText(inviteLink);
     setCopied(true);
@@ -286,7 +311,8 @@ export default function GreenRoomScreen({
           audioLevel={localLevel}
           speaking={localSpeaking}
           isHost
-          muted={false}
+          muted={localMuted}
+          onToggleMute={() => toggleMute('local')}
         />
 
         {/* Remote Peers */}
@@ -298,6 +324,7 @@ export default function GreenRoomScreen({
             audioLevel={p.audioLevel}
             speaking={p.speaking}
             muted={p.muted}
+            onToggleMute={() => toggleMute(p.id)}
           />
         ))}
 
@@ -335,6 +362,7 @@ function ParticipantCard({
   speaking,
   isHost,
   muted,
+  onToggleMute,
 }: {
   name: string;
   status: ConnectionStatus;
@@ -342,6 +370,7 @@ function ParticipantCard({
   speaking: boolean;
   isHost?: boolean;
   muted: boolean;
+  onToggleMute?: () => void;
 }) {
   const initial = name.charAt(0).toUpperCase();
 
@@ -404,7 +433,17 @@ function ParticipantCard({
         />
       </div>
 
-      {muted && <span style={styles.mutedLabel}>Muted</span>}
+      {onToggleMute && (
+        <button
+          onClick={onToggleMute}
+          style={{
+            ...styles.muteBtn,
+            background: muted ? '#e94560' : '#16213e',
+          }}
+        >
+          {muted ? 'Unmute' : 'Mute'}
+        </button>
+      )}
     </div>
   );
 }
@@ -524,9 +563,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 2,
     transition: 'width 0.05s',
   },
-  mutedLabel: {
-    color: '#ffa500',
+  muteBtn: {
+    padding: '4px 12px',
+    borderRadius: 4,
+    color: '#e0e0e0',
     fontSize: 11,
+    border: '1px solid #0f3460',
+    cursor: 'pointer',
+    fontWeight: 500,
   },
   emptySlot: {
     display: 'flex',

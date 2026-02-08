@@ -78,7 +78,7 @@ export function registerIpcHandlers(): void {
       const files = fs.readdirSync(folder);
       return files
         .filter(
-          (f) => f.startsWith(sessionName) && f.endsWith('.webm')
+          (f) => f.startsWith(sessionName) && (f.endsWith('.wav') || f.endsWith('.webm'))
         )
         .map((f) => path.join(folder, f));
     }

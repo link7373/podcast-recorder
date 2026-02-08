@@ -176,20 +176,21 @@ export default function RecordingScreen({
       ctx.font = '11px -apple-system, sans-serif';
       ctx.fillText(part.name, 4, trackIdx * trackHeight + 14);
 
-      // Draw waveform
+      // Draw waveform — amplify levels (typically 0-0.3 range) to fill track height
       ctx.strokeStyle = part.color;
       ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.8;
 
       const startIdx = Math.max(0, dataLen - 600);
       for (let i = startIdx; i < dataLen; i++) {
         const x = (i - startIdx) * pixelsPerSample;
-        const level = waveformData[i].levels.get(part.id) || 0;
+        const rawLevel = waveformData[i].levels.get(part.id) || 0;
+        // Amplify: multiply by 4 and clamp to 0-1 range so typical speech fills the track
+        const level = Math.min(rawLevel * 4, 1);
         const amplitude = level * trackHeight * 0.8;
 
         ctx.fillStyle = part.color;
-        ctx.globalAlpha = 0.6;
-        ctx.fillRect(x, baseY - amplitude / 2, Math.max(pixelsPerSample, 1), amplitude || 1);
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(x, baseY - amplitude / 2, Math.max(pixelsPerSample, 1), Math.max(amplitude, 1));
       }
       ctx.globalAlpha = 1;
     });
@@ -206,6 +207,40 @@ export default function RecordingScreen({
       }
     }
   }, [waveformData]);
+
+  const handleFadeToMute = () => {
+    // Mute all participants (fade effect via disabling tracks)
+    const allMuted = new Map<string, boolean>();
+    allParticipants.current.forEach((part) => {
+      allMuted.set(part.id, true);
+    });
+    setMuted(allMuted);
+
+    // Actually mute all audio tracks
+    if (roomData.filteredStream) {
+      roomData.filteredStream.getAudioTracks().forEach((t) => { t.enabled = false; });
+    }
+    roomData.peers.forEach((peer) => {
+      if (peer.stream) {
+        peer.stream.getAudioTracks().forEach((t) => { t.enabled = false; });
+      }
+    });
+  };
+
+  const handleFadeBackIn = () => {
+    // Unmute all participants
+    setMuted(new Map());
+
+    // Re-enable all audio tracks
+    if (roomData.filteredStream) {
+      roomData.filteredStream.getAudioTracks().forEach((t) => { t.enabled = true; });
+    }
+    roomData.peers.forEach((peer) => {
+      if (peer.stream) {
+        peer.stream.getAudioTracks().forEach((t) => { t.enabled = true; });
+      }
+    });
+  };
 
   const handlePause = () => {
     pauseRecording(recordersRef.current);
@@ -232,7 +267,7 @@ export default function RecordingScreen({
       const blob = blobs.get(recorder.peerId);
       if (blob) {
         const safeName = recorder.peerName.replace(/[^a-zA-Z0-9]/g, '_');
-        const filename = `${config.sessionName}_${safeName}_${recorder.peerId.slice(0, 6)}.webm`;
+        const filename = `${config.sessionName}_${safeName}_${recorder.peerId.slice(0, 6)}.wav`;
         await saveTrackToFile(blob, config.saveFolder, filename);
         savedFiles.push(filename);
       }
@@ -347,6 +382,15 @@ export default function RecordingScreen({
 
       {/* Controls */}
       <div style={styles.controls}>
+        <button onClick={handleFadeToMute} style={styles.fadeBtn}>
+          Fade to Mute
+        </button>
+        <button onClick={handleFadeBackIn} style={styles.fadeBtn}>
+          Fade Back In
+        </button>
+
+        <div style={styles.controlDivider} />
+
         {recordingState === 'recording' && (
           <>
             <button onClick={handlePause} style={styles.pauseBtn}>
@@ -512,5 +556,21 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     border: '1px solid #555',
     cursor: 'pointer',
+  },
+  fadeBtn: {
+    background: '#0f3460',
+    color: '#e0e0e0',
+    padding: '12px 20px',
+    fontSize: 14,
+    fontWeight: 500,
+    borderRadius: 8,
+    border: '1px solid #1e4a7a',
+    cursor: 'pointer',
+  },
+  controlDivider: {
+    width: 1,
+    height: 32,
+    background: '#0f3460',
+    margin: '0 8px',
   },
 };

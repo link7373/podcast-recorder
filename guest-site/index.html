@@ -175,11 +175,12 @@
       <div class="join-form" id="joinForm">
         <div class="avatar-large" id="avatar">?</div>
         <input type="text" class="name-input" id="nameInput" placeholder="Your name" maxlength="20" />
-        <p class="status" id="status">Enter your name to join</p>
+        <p class="status" id="joinStatus">Enter your name to join</p>
         <button class="join-btn" id="joinBtn" disabled>Join Session</button>
       </div>
 
       <div class="participants-section" id="participantsSection">
+        <p class="status connected" id="connectedStatus" style="text-align:center; margin-bottom:12px;">Connected! Waiting for others...</p>
         <p class="participants-label">Participants</p>
         <div class="participants-grid" id="participantsGrid"></div>
         <div style="text-align: center; margin-top: 12px;">
@@ -198,7 +199,8 @@
 
       const nameInput = document.getElementById('nameInput');
       const joinBtn = document.getElementById('joinBtn');
-      const statusEl = document.getElementById('status');
+      const joinStatus = document.getElementById('joinStatus');
+      const connectedStatus = document.getElementById('connectedStatus');
       const avatarEl = document.getElementById('avatar');
       const mutedEl = document.getElementById('mutedIndicator');
       const joinForm = document.getElementById('joinForm');
@@ -215,8 +217,8 @@
       let isMuted = false;
 
       if (!roomId) {
-        statusEl.textContent = 'Invalid invite link \u2014 no room ID found';
-        statusEl.className = 'status error';
+        joinStatus.textContent = 'Invalid invite link \u2014 no room ID found';
+        joinStatus.className = 'status error';
       } else {
         nameInput.addEventListener('input', () => {
           const name = nameInput.value.trim();
@@ -230,13 +232,13 @@
 
           joinBtn.disabled = true;
           nameInput.disabled = true;
-          statusEl.textContent = 'Requesting microphone access...';
+          joinStatus.textContent = 'Requesting microphone access...';
 
           try {
             myStream = await navigator.mediaDevices.getUserMedia({
               audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true },
             });
-            statusEl.textContent = 'Connecting to session...';
+            joinStatus.textContent = 'Connecting to session...';
 
             myAudioCtx = new AudioContext();
             const source = myAudioCtx.createMediaStreamSource(myStream);
@@ -260,8 +262,8 @@
               peers.delete(peerId);
               renderParticipants();
               if (peers.size === 0) {
-                statusEl.textContent = 'Host disconnected. You can close this tab.';
-                statusEl.className = 'status';
+                connectedStatus.textContent = 'Host disconnected. You can close this tab.';
+                connectedStatus.className = 'status';
               }
             });
 
@@ -286,8 +288,8 @@
               peer.audioCtx = ctx;
               peer.analyser = analyser;
               renderParticipants();
-              statusEl.textContent = 'Connected!';
-              statusEl.className = 'status connected';
+              connectedStatus.textContent = 'Connected!';
+              connectedStatus.className = 'status connected';
             });
 
             const [, onMuteCommand] = room.makeAction('mute-command');
@@ -303,8 +305,6 @@
 
             joinForm.style.display = 'none';
             participantsSection.classList.add('visible');
-            statusEl.textContent = 'Connected! Waiting for others...';
-            statusEl.className = 'status connected';
             startLevelAnimation();
 
             muteSelfBtn.addEventListener('click', () => {
@@ -315,8 +315,8 @@
             });
 
           } catch (err) {
-            statusEl.textContent = 'Microphone error: ' + (err.message || String(err));
-            statusEl.className = 'status error';
+            joinStatus.textContent = 'Microphone error: ' + (err.message || String(err));
+            joinStatus.className = 'status error';
             joinBtn.disabled = false;
             nameInput.disabled = false;
           }

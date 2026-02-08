@@ -36,9 +36,10 @@ export default function App() {
     if (!savePath) return;
 
     try {
-      const fullPaths = trackFiles.map(
-        (f) => `${sessionConfig.saveFolder.replace(/\\/g, '/')}/${f}`
-      );
+      // Use native path separators for ffmpeg on Windows
+      const folder = sessionConfig.saveFolder;
+      const sep = folder.includes('\\') ? '\\' : '/';
+      const fullPaths = trackFiles.map((f) => `${folder}${sep}${f}`);
       await window.electronAPI.exportMix(fullPaths, savePath);
       alert(`Export complete!\n\nSaved to: ${savePath}`);
     } catch (err) {

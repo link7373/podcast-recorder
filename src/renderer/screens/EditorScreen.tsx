@@ -39,7 +39,7 @@ export default function EditorScreen({
     const playlist = WaveformPlaylist({
       container: containerRef.current,
       timescale: true,
-      state: 'cursor',
+      state: 'select',
       samplesPerPixel: 1000,
       waveHeight: 100,
       colors: {
@@ -59,13 +59,16 @@ export default function EditorScreen({
     // Build track list with distinct colors and clean names
     const tracks = trackFiles.map((filename, i) => {
       const color = TRACK_COLORS[i % TRACK_COLORS.length];
-      const rawName = filename.replace(/\.webm$/, '').replace(/_/g, ' ');
+      const rawName = filename.replace(/\.(wav|webm)$/, '').replace(/_/g, ' ');
       const parts = rawName.split(' ');
       const name = parts.length >= 3
         ? parts.slice(1, -1).join(' ')
         : rawName;
+      // Use file:// protocol with proper path formatting
+      const folder = config.saveFolder.replace(/\\/g, '/');
+      const src = `file:///${folder.replace(/^\//, '')}/${filename}`;
       return {
-        src: `file://${config.saveFolder.replace(/\\/g, '/')}/${filename}`,
+        src,
         name,
         waveOutlineColor: color.wave,
         backgroundColor: color.bg,
@@ -134,8 +137,14 @@ export default function EditorScreen({
       .selection.point {
         background: rgba(233, 69, 96, 0.4) !important;
       }
+      .selection {
+        background: rgba(233, 69, 96, 0.25) !important;
+      }
       .channel {
         background: #0d1117 !important;
+      }
+      .playlist-tracks {
+        cursor: crosshair;
       }
     `;
     document.head.appendChild(style);
@@ -164,7 +173,9 @@ export default function EditorScreen({
 
   const handleCut = useCallback(() => {
     if (playlistRef.current) {
-      playlistRef.current.trim();
+      // Use the event emitter to trigger trim (removes selected region)
+      const ee = playlistRef.current.getEventEmitter();
+      ee.emit('trim');
     }
   }, []);
 
@@ -219,7 +230,8 @@ export default function EditorScreen({
 
       const buffers: AudioBuffer[] = [];
       for (const filename of trackFiles) {
-        const filePath = `file://${config.saveFolder.replace(/\\/g, '/')}/${filename}`;
+        const folder = config.saveFolder.replace(/\\/g, '/');
+        const filePath = `file:///${folder.replace(/^\//, '')}/${filename}`;
         const response = await fetch(filePath);
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
@@ -348,7 +360,7 @@ export default function EditorScreen({
       <div style={styles.trackLegend}>
         {trackFiles.map((f, i) => {
           const color = TRACK_COLORS[i % TRACK_COLORS.length];
-          const parts = f.replace(/\.webm$/, '').replace(/_/g, ' ').split(' ');
+          const parts = f.replace(/\.(wav|webm)$/, '').replace(/_/g, ' ').split(' ');
           const name = parts.length >= 3 ? parts.slice(1, -1).join(' ') : parts.join(' ');
           return (
             <div key={f} style={styles.legendItem}>
